@@ -16,11 +16,13 @@
   <ItemGroup>
     <ClCompile Include="Device.c" />
     <ClCompile Include="Driver.c" />
+    <ClCompile Include="fsa4480.c" />
     <ClCompile Include="Spb.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Device.h" />
     <ClInclude Include="Driver.h" />
+    <ClInclude Include="fsa4480.h" />
     <ClInclude Include="Spb.h" />
     <ClInclude Include="Trace.h" />
   </ItemGroup>

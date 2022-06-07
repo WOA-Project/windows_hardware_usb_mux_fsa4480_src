@@ -17,6 +17,7 @@ Environment:
 #pragma once
 
 #include "spb.h"
+#include <usbctypes.h>
 
 //
 // The device context performs the same job as
@@ -45,6 +46,8 @@ typedef struct _DEVICE_CONTEXT
 	ACPI_INTERFACE_STANDARD2 AcpiInterface;
 
 	ULONG CCOUT;
+
+	USBC_PARTNER USBCPartner;
 } DEVICE_CONTEXT, * PDEVICE_CONTEXT;
 
 //

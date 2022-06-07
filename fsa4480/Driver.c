@@ -158,21 +158,7 @@ Return Value:
 
 	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC! Entry");
 
-	PACPI_INTERFACE_STANDARD2 ACPIInterface;
-	PDEVICE_CONTEXT devContext = (PDEVICE_CONTEXT)DeviceGetContext(DriverObject);
-
-	FSA4480UpdateSettings((WDFDEVICE)DriverObject, 0x18, 0x98);
-
-	SpbTargetDeinitialize((WDFDEVICE)DriverObject, &devContext->I2CContext);
-
-	if (devContext->RegisteredforNotification)
-	{
-		ACPIInterface = &(devContext->AcpiInterface);
-
-		ACPIInterface->UnregisterForDeviceNotifications(ACPIInterface->Context);
-
-		devContext->RegisteredforNotification = FALSE;
-	}
+	fsa4480DeviceUnPrepareHardware((WDFDEVICE)DriverObject);
 
 	//
 	// Stop WPP Tracing

@@ -20,6 +20,7 @@ Environment:
 #include <reshub.h>
 #include <gpio.h>
 #include <wdf.h>
+#include "fsa4480.h"
 #include "device.tmh"
 
 #ifdef ALLOC_PRAGMA
@@ -27,187 +28,70 @@ Environment:
 #pragma alloc_text (PAGE, fsa4480DevicePrepareHardware)
 #endif
 
-#define FSA4480_SWITCH_SETTINGS 0x04
-#define FSA4480_SWITCH_CONTROL  0x05
-#define FSA4480_SWITCH_STATUS1  0x07
-#define FSA4480_SLOW_L          0x08
-#define FSA4480_SLOW_R          0x09
-#define FSA4480_SLOW_MIC        0x0A
-#define FSA4480_SLOW_SENSE      0x0B
-#define FSA4480_SLOW_GND        0x0C
-#define FSA4480_DELAY_L_R       0x0D
-#define FSA4480_DELAY_L_MIC     0x0E
-#define FSA4480_DELAY_L_SENSE   0x0F
-#define FSA4480_DELAY_L_AGND    0x10
-#define FSA4480_RESET           0x1E
-
-
-/*
-* Rob Green, a member of the NTDEV list, provides the
-* following set of macros that'll keep you from having
-* to scratch your head and count zeros ever again.
-* Using these defintions, all you'll have to do is write:
-*
-* interval.QuadPart = RELATIVE(SECONDS(5));
-*/
-
-#ifndef ABSOLUTE
-#define ABSOLUTE(wait) (wait)
-#endif
-
-#ifndef RELATIVE
-#define RELATIVE(wait) (-(wait))
-#endif
-
-#ifndef NANOSECONDS
-#define NANOSECONDS(nanos) \
-	(((signed __int64)(nanos)) / 100L)
-#endif
-
-#ifndef MICROSECONDS
-#define MICROSECONDS(micros) \
-	(((signed __int64)(micros)) * NANOSECONDS(1000L))
-#endif
-
-#ifndef MILLISECONDS
-#define MILLISECONDS(milli) \
-	(((signed __int64)(milli)) * MICROSECONDS(1000L))
-#endif
-
-#ifndef SECONDS
-#define SECONDS(seconds) \
-	(((signed __int64)(seconds)) * MILLISECONDS(1000L))
-#endif
-
-NTSTATUS
-FSA4480UpdateSettings(
-	WDFDEVICE Device,
-	BYTE SwitchControl,
-	BYTE SwitchEnable
+NTSTATUS UtilitySetGPIO(
+	WDFIOTARGET GpioIoTarget,
+	UCHAR Value
 )
 {
-	NTSTATUS status;
-	PDEVICE_CONTEXT deviceContext;
-	LARGE_INTEGER delay = { 0 };
+	NTSTATUS status = STATUS_SUCCESS;
+	WDF_MEMORY_DESCRIPTOR inputDescriptor, outputDescriptor;
+	UCHAR Buf[1];
 
-	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(Device);
+	Buf[0] = Value;
 
-	BYTE Data = 0x80;
+	WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputDescriptor, (PVOID)&Buf, sizeof(Buf));
+	WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&outputDescriptor, (PVOID)&Buf, sizeof(Buf));
+	status = WdfIoTargetSendIoctlSynchronously(GpioIoTarget, NULL, IOCTL_GPIO_WRITE_PINS, &inputDescriptor, &outputDescriptor, NULL, NULL);
 
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SWITCH_SETTINGS,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb initialization - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SWITCH_CONTROL,
-		&SwitchControl,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb initialization - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	delay.QuadPart = RELATIVE(MICROSECONDS(55));
-	status = KeDelayExecutionThread(KernelMode, TRUE, &delay);
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"KeDelayExecutionThread failed with Status = 0x%08lX\n",
-			status
-		);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SWITCH_SETTINGS,
-		&SwitchEnable,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb initialization - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-exit:
 	return status;
 }
 
-VOID
-FSA4480ValidateDisplayPortSettings(
-	WDFDEVICE Device
+NTSTATUS UtilityOpenIOTarget(
+	PDEVICE_CONTEXT DeviceContext,
+	LARGE_INTEGER Resource,
+	ACCESS_MASK UseMask,
+	WDFIOTARGET* IoTraget
 )
 {
-	NTSTATUS status;
-	PDEVICE_CONTEXT deviceContext;
-	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(Device);
+	NTSTATUS status = STATUS_SUCCESS;
+	WDF_OBJECT_ATTRIBUTES ObjectAttributes;
+	WDF_IO_TARGET_OPEN_PARAMS OpenParams;
+	UNICODE_STRING ReadString;
+	WCHAR ReadStringBuffer[260];
 
-	UINT32 SwitchStatus = 0;
+	PAGED_CODE();
 
-	status = SpbReadDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SWITCH_STATUS1,
-		&SwitchStatus,
-		1
-	);
+	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DEVICE, "%!FUNC! Entry");
 
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb initialization - %!STATUS!",
-			status);
+	RtlInitEmptyUnicodeString(&ReadString,
+		ReadStringBuffer,
+		sizeof(ReadStringBuffer));
+
+	status = RESOURCE_HUB_CREATE_PATH_FROM_ID(&ReadString,
+		Resource.LowPart,
+		Resource.HighPart);
+	if (!NT_SUCCESS(status)) {
+		TraceEvents(TRACE_LEVEL_ERROR, TRACE_DEVICE, "RESOURCE_HUB_CREATE_PATH_FROM_ID failed %!STATUS!\n", status);
+		return status;
 	}
-	else
-	{
-		if (SwitchStatus != 0x23 && SwitchStatus != 0x1C)
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DRIVER,
-				"Invalid AUX Switch Configuration for Display Port! SwitchStatus: %d",
-				SwitchStatus);
-		}
-		else
-		{
-			TraceEvents(
-				TRACE_LEVEL_INFORMATION,
-				TRACE_DRIVER,
-				"Valid AUX Switch Configuration for Display Port! SwitchStatus: %d",
-				SwitchStatus);
-		}
+
+	WDF_OBJECT_ATTRIBUTES_INIT(&ObjectAttributes);
+	ObjectAttributes.ParentObject = DeviceContext->Device;
+
+	status = WdfIoTargetCreate(DeviceContext->Device, &ObjectAttributes, IoTraget);
+	if (!NT_SUCCESS(status)) {
+		TraceEvents(TRACE_LEVEL_ERROR, TRACE_DEVICE, "WdfIoTargetCreate failed %!STATUS!\n", status);
+		return status;
 	}
+
+	WDF_IO_TARGET_OPEN_PARAMS_INIT_OPEN_BY_NAME(&OpenParams, &ReadString, UseMask);
+	status = WdfIoTargetOpen(*IoTraget, &OpenParams);
+	if (!NT_SUCCESS(status)) {
+		TraceEvents(TRACE_LEVEL_ERROR, TRACE_DEVICE, "WdfIoTargetOpen failed %!STATUS!\n", status);
+	}
+
+	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DEVICE, "%!FUNC! Exit");
+	return status;
 }
 
 VOID
@@ -230,22 +114,15 @@ USBCCChangeNotifyCallback(
 
 	if (deviceContext->CCOUT == 2)
 	{
-		FSA4480UpdateSettings(device, 0x18, 0x98);
+		FSA4480_Switch(device, FSA4480_SET_DP_DISCONNECTED);
 	}
-	else
+	else if (deviceContext->CCOUT == 0)
 	{
-		FSA4480UpdateSettings(device, 0x00, 0x9F);
-
-		if (deviceContext->CCOUT == 0)
-		{
-			FSA4480UpdateSettings(device, 0x18, 0xF8);
-		}
-		else if (deviceContext->CCOUT == 1)
-		{
-			FSA4480UpdateSettings(device, 0x78, 0xF8);
-		}
-
-		FSA4480ValidateDisplayPortSettings(device);
+		FSA4480_Switch(device, FSA4480_SET_USBC_CC1);
+	}
+	else if (deviceContext->CCOUT == 1)
+	{
+		FSA4480_Switch(device, FSA4480_SET_USBC_CC2);
 	}
 }
 
@@ -375,206 +252,6 @@ Return Value:
 			goto exit;
 		}
 	}
-
-exit:
-	return status;
-}
-
-NTSTATUS
-InitializeFSA4480(
-	IN WDFDEVICE Device
-)
-{
-	NTSTATUS status = STATUS_SUCCESS;
-	PDEVICE_CONTEXT deviceContext;
-
-	deviceContext = DeviceGetContext(Device);
-
-	BYTE Data = 0;
-
-	TraceEvents(
-		TRACE_LEVEL_INFORMATION,
-		TRACE_DRIVER,
-		"Writing default values");
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SLOW_L,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_SLOW_L write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SLOW_R,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_SLOW_R write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SLOW_MIC,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_SLOW_MIC write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SLOW_SENSE,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_SLOW_SENSE write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SLOW_GND,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_SLOW_GND write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_DELAY_L_R,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_DELAY_L_R write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_DELAY_L_MIC,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_DELAY_L_MIC write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_DELAY_L_SENSE,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_DELAY_L_SENSE write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	Data = 0x09;
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_DELAY_L_AGND,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_DELAY_L_AGND write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	Data = 0x98;
-
-	status = SpbWriteDataSynchronously(
-		&deviceContext->I2CContext,
-		FSA4480_SWITCH_SETTINGS,
-		&Data,
-		1);
-
-	if (!NT_SUCCESS(status))
-	{
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DRIVER,
-			"Error in Spb FSA4480_SWITCH_SETTINGS write - %!STATUS!",
-			status);
-
-		goto exit;
-	}
-
-	TraceEvents(
-		TRACE_LEVEL_INFORMATION,
-		TRACE_DRIVER,
-		"Done writing default values");
 
 exit:
 	return status;
@@ -741,9 +418,46 @@ Return Value:
 	TraceEvents(
 		TRACE_LEVEL_INFORMATION,
 		TRACE_DRIVER,
+		"Turning on FSA4480");
+
+	status = UtilityOpenIOTarget(
+		devContext, 
+		devContext->EnGpioId, 
+		GENERIC_READ | GENERIC_WRITE, 
+		&devContext->EnGpio
+	);
+
+	if (!NT_SUCCESS(status))
+	{
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DRIVER,
+			"Error opening enable gpio - %!STATUS!",
+			status);
+
+		goto exit;
+	}
+
+	// Enable by setting the pin LOW.
+	status = UtilitySetGPIO(devContext->EnGpio, 0);
+
+	if (!NT_SUCCESS(status))
+	{
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DRIVER,
+			"Error setting enable gpio to low - %!STATUS!",
+			status);
+
+		goto exit;
+	}
+
+	TraceEvents(
+		TRACE_LEVEL_INFORMATION,
+		TRACE_DRIVER,
 		"Initializing FSA4480");
 
-	status = InitializeFSA4480(Device);
+	status = FSA4480_Initialize(Device);
 
 	if (!NT_SUCCESS(status))
 	{
@@ -759,4 +473,24 @@ Return Value:
 exit:
 	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "Leaving %!FUNC!: Status = 0x%08lX\n", status);
 	return status;
+}
+
+VOID
+fsa4480DeviceUnPrepareHardware(
+	WDFDEVICE Device
+)
+{
+	PDEVICE_CONTEXT devContext = DeviceGetContext(Device);
+	PACPI_INTERFACE_STANDARD2 ACPIInterface;
+
+	FSA4480_Uninitialize(Device);
+	UtilitySetGPIO(devContext->EnGpio, 1);
+	SpbTargetDeinitialize(Device, &devContext->I2CContext);
+
+	if (devContext->RegisteredforNotification)
+	{
+		ACPIInterface = &(devContext->AcpiInterface);
+		ACPIInterface->UnregisterForDeviceNotifications(ACPIInterface->Context);
+		devContext->RegisteredforNotification = FALSE;
+	}
 }

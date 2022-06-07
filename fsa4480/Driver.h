@@ -33,9 +33,7 @@ EVT_WDF_OBJECT_CONTEXT_CLEANUP fsa4480EvtDriverContextCleanup;
 EVT_WDF_DEVICE_PREPARE_HARDWARE fsa4480DevicePrepareHardware;
 EVT_WDF_DRIVER_UNLOAD fsa4480EvtDriverUnload;
 
-NTSTATUS
-FSA4480UpdateSettings(
-	WDFDEVICE Device,
-	BYTE SwitchControl,
-	BYTE SwitchEnable
+VOID
+fsa4480DeviceUnPrepareHardware(
+	WDFDEVICE Device
 );
