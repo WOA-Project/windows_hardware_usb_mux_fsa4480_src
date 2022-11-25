@@ -30,6 +30,11 @@ typedef struct _DEVICE_CONTEXT
 	//
 	WDFDEVICE Device;
 
+	BOOLEAN InitializedSpbHardware;
+	BOOLEAN InitializedEnGpioHardware;
+	BOOLEAN InitializedAcpiInterface;
+	BOOLEAN InitializedFSAHardware;
+
 	//
 	// Spb (I2C) related members used for the lifetime of the device
 	//
@@ -41,12 +46,9 @@ typedef struct _DEVICE_CONTEXT
 	LARGE_INTEGER EnGpioId;
 	WDFIOTARGET EnGpio;
 
-	BOOLEAN RegisteredforNotification;
-
 	ACPI_INTERFACE_STANDARD2 AcpiInterface;
 
 	ULONG CCOUT;
-
 	USBC_PARTNER USBCPartner;
 } DEVICE_CONTEXT, * PDEVICE_CONTEXT;
 

@@ -35,14 +35,21 @@ NTSTATUS UtilitySetGPIO(
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	WDF_MEMORY_DESCRIPTOR inputDescriptor, outputDescriptor;
-	UCHAR Buf[1];
+	UCHAR Buffer[1];
 
-	Buf[0] = Value;
+	Buffer[0] = Value;
 
-	WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputDescriptor, (PVOID)&Buf, sizeof(Buf));
-	WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&outputDescriptor, (PVOID)&Buf, sizeof(Buf));
+	if (GpioIoTarget == NULL) {
+		status = STATUS_INVALID_HANDLE;
+		goto exit;
+	}
+
+	WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputDescriptor, (PVOID)&Buffer, sizeof(Buffer));
+	WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&outputDescriptor, (PVOID)&Buffer, sizeof(Buffer));
+
 	status = WdfIoTargetSendIoctlSynchronously(GpioIoTarget, NULL, IOCTL_GPIO_WRITE_PINS, &inputDescriptor, &outputDescriptor, NULL, NULL);
 
+exit:
 	return status;
 }
 
@@ -139,7 +146,7 @@ RegisterForUSBCCChangeNotification(
 
 	deviceContext = DeviceGetContext(Device);
 
-	if (deviceContext->RegisteredforNotification)
+	if (deviceContext->InitializedAcpiInterface)
 	{
 		goto exit;
 	}
@@ -170,7 +177,7 @@ RegisterForUSBCCChangeNotification(
 		goto exit;
 	}
 
-	deviceContext->RegisteredforNotification = TRUE;
+	deviceContext->InitializedAcpiInterface = TRUE;
 
 exit:
 	return status;
@@ -415,6 +422,8 @@ Return Value:
 		goto exit;
 	}
 
+	devContext->InitializedSpbHardware = TRUE;
+
 	TraceEvents(
 		TRACE_LEVEL_INFORMATION,
 		TRACE_DRIVER,
@@ -437,6 +446,8 @@ Return Value:
 
 		goto exit;
 	}
+
+	devContext->InitializedEnGpioHardware = TRUE;
 
 	// Enable by setting the pin LOW.
 	status = UtilitySetGPIO(devContext->EnGpio, 0);
@@ -470,6 +481,8 @@ Return Value:
 		goto exit;
 	}
 
+	devContext->InitializedFSAHardware = TRUE;
+
 exit:
 	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "Leaving %!FUNC!: Status = 0x%08lX\n", status);
 	return status;
@@ -483,14 +496,29 @@ fsa4480DeviceUnPrepareHardware(
 	PDEVICE_CONTEXT devContext = DeviceGetContext(Device);
 	PACPI_INTERFACE_STANDARD2 ACPIInterface;
 
-	FSA4480_Uninitialize(Device);
-	UtilitySetGPIO(devContext->EnGpio, 1);
-	SpbTargetDeinitialize(Device, &devContext->I2CContext);
-
-	if (devContext->RegisteredforNotification)
+	if (devContext->InitializedAcpiInterface)
 	{
 		ACPIInterface = &(devContext->AcpiInterface);
 		ACPIInterface->UnregisterForDeviceNotifications(ACPIInterface->Context);
-		devContext->RegisteredforNotification = FALSE;
+		devContext->InitializedAcpiInterface = FALSE;
+	}
+
+	if (devContext->InitializedFSAHardware)
+	{
+		FSA4480_Uninitialize(Device);
+		devContext->InitializedFSAHardware = FALSE;
+	}
+
+	if (devContext->InitializedEnGpioHardware)
+	{
+		UtilitySetGPIO(devContext->EnGpio, 1);
+		WdfIoTargetClose(devContext->EnGpio);
+		devContext->InitializedEnGpioHardware = FALSE;
+	}
+
+	if (devContext->InitializedSpbHardware)
+	{
+		SpbTargetDeinitialize(Device, &devContext->I2CContext);
+		devContext->InitializedSpbHardware = FALSE;
 	}
 }
