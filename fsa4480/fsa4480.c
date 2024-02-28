@@ -18,6 +18,19 @@ FSA4480_UpdateSettings(
 
 	BYTE Data = 0x80;
 
+	if (!deviceContext->InitializedSpbHardware)
+	{
+		status = STATUS_INSUFFICIENT_RESOURCES;
+
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DRIVER,
+			"Spb Hardware is not yet initialized, aborting - %!STATUS!",
+			status);
+
+		goto exit;
+	}
+
 	status = SpbWriteDataSynchronously(
 		&deviceContext->I2CContext,
 		FSA4480_SWITCH_SETTINGS,
@@ -30,6 +43,19 @@ FSA4480_UpdateSettings(
 			TRACE_LEVEL_ERROR,
 			TRACE_DRIVER,
 			"Error in Spb initialization - %!STATUS!",
+			status);
+
+		goto exit;
+	}
+
+	if (!deviceContext->InitializedSpbHardware)
+	{
+		status = STATUS_INSUFFICIENT_RESOURCES;
+
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DRIVER,
+			"Spb Hardware is not yet initialized, aborting - %!STATUS!",
 			status);
 
 		goto exit;
@@ -62,6 +88,19 @@ FSA4480_UpdateSettings(
 			"KeDelayExecutionThread failed with Status = 0x%08lX\n",
 			status
 		);
+
+		goto exit;
+	}
+
+	if (!deviceContext->InitializedSpbHardware)
+	{
+		status = STATUS_INSUFFICIENT_RESOURCES;
+
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DRIVER,
+			"Spb Hardware is not yet initialized, aborting - %!STATUS!",
+			status);
 
 		goto exit;
 	}
@@ -100,6 +139,19 @@ FSA4480_SetDefaultRegisterSettings(
 
 	for (i = 0; i < ARRAYSIZE(gDefaultRegisterSettings); i++)
 	{
+		if (!deviceContext->InitializedSpbHardware)
+		{
+			status = STATUS_INSUFFICIENT_RESOURCES;
+
+			TraceEvents(
+				TRACE_LEVEL_ERROR,
+				TRACE_DRIVER,
+				"Spb Hardware is not yet initialized, aborting - %!STATUS!",
+				status);
+
+			goto exit;
+		}
+
 		status = SpbWriteDataSynchronously(
 			&deviceContext->I2CContext,
 			gDefaultRegisterSettings[i].Address,
@@ -179,6 +231,19 @@ FSA4480_ValidateDisplayPortSettings(
 
 	UINT32 SwitchStatus = 0;
 
+	if (!deviceContext->InitializedSpbHardware)
+	{
+		status = STATUS_INSUFFICIENT_RESOURCES;
+
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DRIVER,
+			"Spb Hardware is not yet initialized, aborting - %!STATUS!",
+			status);
+
+		goto exit;
+	}
+
 	status = SpbReadDataSynchronously(
 		&deviceContext->I2CContext,
 		FSA4480_SWITCH_STATUS1,
@@ -193,29 +258,39 @@ FSA4480_ValidateDisplayPortSettings(
 			TRACE_DRIVER,
 			"Error in Spb initialization - %!STATUS!",
 			status);
-		return status;
+
+		goto exit;
 	}
 	else
 	{
 		if (SwitchStatus != 0x23 && SwitchStatus != 0x1C)
 		{
+			status = STATUS_INVALID_CONNECTION;
+
 			TraceEvents(
 				TRACE_LEVEL_ERROR,
 				TRACE_DRIVER,
 				"Invalid AUX Switch Configuration for Display Port! SwitchStatus: %d",
 				SwitchStatus);
-			return STATUS_INVALID_CONNECTION;
+
+			goto exit;
 		}
 		else
 		{
+			status = STATUS_SUCCESS;
+
 			TraceEvents(
 				TRACE_LEVEL_INFORMATION,
 				TRACE_DRIVER,
 				"Valid AUX Switch Configuration for Display Port! SwitchStatus: %d",
 				SwitchStatus);
-			return STATUS_SUCCESS;
+
+			goto exit;
 		}
 	}
+
+exit:
+	return status;
 }
 
 NTSTATUS
@@ -233,6 +308,19 @@ FSA4480_Switch(
 	{
 	case FSA4480_SWAP_MIC_GND:
 	{
+		if (!deviceContext->InitializedSpbHardware)
+		{
+			status = STATUS_INSUFFICIENT_RESOURCES;
+
+			TraceEvents(
+				TRACE_LEVEL_ERROR,
+				TRACE_DRIVER,
+				"Spb Hardware is not yet initialized, aborting - %!STATUS!",
+				status);
+
+			goto exit;
+		}
+
 		status = SpbReadDataSynchronously(
 			&deviceContext->I2CContext,
 			FSA4480_SWITCH_CONTROL,
