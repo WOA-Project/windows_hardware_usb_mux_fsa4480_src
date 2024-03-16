@@ -28,7 +28,6 @@ Environment:
 #pragma alloc_text(PAGE, fsa4480CreateDevice)
 #pragma alloc_text(PAGE, fsa4480DevicePrepareHardware)
 #pragma alloc_text(PAGE, OnInternalDeviceControl)
-#pragma alloc_text(PAGE, OnRequestCompletionRoutine)
 #endif
 
 NTSTATUS UtilitySetGPIO(
@@ -106,35 +105,11 @@ NTSTATUS UtilityOpenIOTarget(
 	return status;
 }
 
-VOID USBCCChangeNotifyCallback(
-	PVOID NotificationContext,
-	ULONG NotifyCode)
-{
-	PDEVICE_CONTEXT deviceContext;
-	WDFDEVICE device = (WDFDEVICE)NotificationContext;
+#define CCOUT_SIZE (1)	// 1 Byte
+#define HSMODE_SIZE (1) // 1 Byte
 
-	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(device);
-
-	// 0 -> CC1
-	// 1 -> CC2
-	// 2 -> CC Open
-	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC!: CC OUT Status = %d\n", NotifyCode);
-
-	deviceContext->CCOUT = NotifyCode;
-
-	if (deviceContext->CCOUT == 2)
-	{
-		FSA4480_Switch(device, FSA4480_SET_DP_DISCONNECTED);
-	}
-	else if (deviceContext->CCOUT == 0)
-	{
-		FSA4480_Switch(device, FSA4480_SET_USBC_CC1);
-	}
-	else if (deviceContext->CCOUT == 1)
-	{
-		FSA4480_Switch(device, FSA4480_SET_USBC_CC2);
-	}
-}
+#define QCUSBC_ACPI_CC_METHOD_NAME_ULONG ('TOCC')
+#define QCUSBC_ACPI_CC_METHOD_ARGS (2)
 
 VOID OnInternalDeviceControl(
 	IN WDFQUEUE Queue,
@@ -168,14 +143,22 @@ Return Value:
 
 --*/
 {
-	NTSTATUS status;
+	NTSTATUS status = STATUS_SUCCESS;
 	WDFDEVICE device;
-	BOOLEAN forwardWithCompletionRoutine = FALSE;
 	BOOLEAN requestSent = TRUE;
 	WDF_REQUEST_SEND_OPTIONS options;
-	WDFMEMORY outputMemory;
-	WDFMEMORY inputMemory;
 	WDFIOTARGET Target;
+	PDEVICE_CONTEXT deviceContext;
+
+	size_t inputBufferLength = 0;
+	PUCHAR inputBuffer = NULL;
+
+	UINT8 CC_Out_Size = CCOUT_SIZE;
+	UINT8 HSMode_Size = HSMODE_SIZE;
+	size_t expectedInputBufferLength = FIELD_OFFSET(ACPI_EVAL_INPUT_BUFFER_COMPLEX, Argument) +
+									   ACPI_METHOD_ARGUMENT_LENGTH(CC_Out_Size) +
+									   ACPI_METHOD_ARGUMENT_LENGTH(HSMode_Size);
+	PACPI_EVAL_INPUT_BUFFER_COMPLEX pAcpiInputBuf = NULL;
 
 	UNREFERENCED_PARAMETER(OutputBufferLength);
 
@@ -184,173 +167,13 @@ Return Value:
 	device = WdfIoQueueGetDevice(Queue);
 	Target = WdfDeviceGetIoTarget(device);
 
-	//
-	// Please note that ACPI provides the buffer in the Irp->UserBuffer
-	// field irrespective of the ioctl buffer type. However, framework is very
-	// strict about type checking. You cannot get Irp->UserBuffer by using
-	// WdfRequestRetrieveOutputMemory if the ioctl is not a METHOD_NEITHER
-	// internal ioctl. So depending on the ioctl code, we will either
-	// use retreive function or escape to WDM to get the UserBuffer.
-	//
-
 	switch (IoControlCode)
 	{
 
 	case IOCTL_ACPI_EVAL_METHOD:
 		//
-		// Obtains Eval Method Output buffer for the USB C Connector Manager device
+		// Retrieve the input buffer from the request
 		//
-		forwardWithCompletionRoutine = TRUE;
-		break;
-
-	default:
-		break;
-	}
-
-	//
-	// Forward the request down. WdfDeviceGetIoTarget returns
-	// the default target, which represents the device attached to us below in
-	// the stack.
-	//
-	if (forwardWithCompletionRoutine)
-	{
-		//
-		// Format the request with the input and output memory so the completion routine
-		// can access the return data in order to cache it into the context area
-		//
-		status = WdfRequestRetrieveInputMemory(Request, &inputMemory);
-
-		if (!NT_SUCCESS(status))
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"WdfRequestRetrieveInputMemory failed: 0x%x\n",
-				status);
-
-			WdfRequestComplete(Request, status);
-			return;
-		}
-
-		status = WdfRequestRetrieveOutputMemory(Request, &outputMemory);
-
-		if (!NT_SUCCESS(status))
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"WdfRequestRetrieveOutputMemory failed: 0x%x\n",
-				status);
-
-			WdfRequestComplete(Request, status);
-			return;
-		}
-
-		status = WdfIoTargetFormatRequestForInternalIoctl(
-			Target,
-			Request,
-			IoControlCode,
-			inputMemory,
-			NULL,
-			outputMemory,
-			NULL);
-
-		if (!NT_SUCCESS(status))
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"WdfIoTargetFormatRequestForInternalIoctl failed: 0x%x\n",
-				status);
-
-			WdfRequestComplete(Request, status);
-			return;
-		}
-
-		//
-		// Set our completion routine with a context area that we will save
-		// the output data into
-		//
-		WdfRequestSetCompletionRoutine(
-			Request,
-			OnRequestCompletionRoutine,
-			&InputBufferLength);
-
-		requestSent = WdfRequestSend(
-			Request,
-			Target,
-			WDF_NO_SEND_OPTIONS);
-	}
-	else
-	{
-		//
-		// We are not interested in post processing the IRP so
-		// fire and forget.
-		//
-		WDF_REQUEST_SEND_OPTIONS_INIT(
-			&options,
-			WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
-
-		requestSent = WdfRequestSend(Request, Target, &options);
-	}
-
-	if (requestSent == FALSE)
-	{
-		status = WdfRequestGetStatus(Request);
-
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DEVICE,
-			"WdfRequestSend failed: 0x%x\n",
-			status);
-
-		WdfRequestComplete(Request, status);
-	}
-}
-
-VOID OnRequestCompletionRoutine(
-	IN WDFREQUEST Request,
-	IN WDFIOTARGET Target,
-	IN PWDF_REQUEST_COMPLETION_PARAMS Params,
-	IN WDFCONTEXT Context)
-/*++
-
-Routine Description:
-
-	Completion Routine
-
-Arguments:
-
-	Target - Target handle
-	Request - Request handle
-	Params - request completion params
-	Context - Driver supplied context
-
-
-Return Value:
-
-	VOID
-
---*/
-{
-	WDFMEMORY inputMemory = Params->Parameters.Ioctl.Input.Buffer;
-	WDFMEMORY outputMemory = Params->Parameters.Ioctl.Output.Buffer;
-	NTSTATUS status = Params->IoStatus.Status;
-
-	ULONG inputBufferLength = 0;
-	PUCHAR inputBuffer = NULL;
-
-	ULONG outputBufferLength = 0;
-	PUCHAR outputBuffer = NULL;
-
-	UNREFERENCED_PARAMETER(Target);
-
-	if (NT_SUCCESS(status) &&
-		Params->Type == WdfRequestTypeDeviceControlInternal &&
-		Params->Parameters.Ioctl.IoControlCode == IOCTL_ACPI_EVAL_METHOD)
-	{
-		inputBufferLength = *(PULONG)Context;
-
 		inputBuffer = (PUCHAR)ExAllocatePoolWithTag(
 			NonPagedPoolNx,
 			inputBufferLength,
@@ -364,138 +187,105 @@ Return Value:
 				"Could not allocate input buffer!");
 
 			status = STATUS_UNSUCCESSFUL;
-			goto exit;
+
+			TraceEvents(
+				TRACE_LEVEL_ERROR,
+				TRACE_DEVICE,
+				"WdfRequestRetrieveInputBuffer failed: 0x%x\n",
+				status);
+
+			WdfRequestComplete(Request, status);
+			return;
 		}
 
-		status = WdfMemoryCopyToBuffer(
-			inputMemory,
-			Params->Parameters.Ioctl.Input.Offset,
-			inputBuffer,
-			inputBufferLength);
+		status = WdfRequestRetrieveInputBuffer(Request, InputBufferLength, &inputBuffer, &inputBufferLength);
 
 		if (!NT_SUCCESS(status))
 		{
 			TraceEvents(
 				TRACE_LEVEL_ERROR,
 				TRACE_DEVICE,
-				"WdfMemoryCopyToBuffer failed: 0x%x\n",
+				"WdfRequestRetrieveInputBuffer failed: 0x%x\n",
 				status);
 
-			status = STATUS_UNSUCCESSFUL;
-			goto free_input_buffer;
+			WdfRequestComplete(Request, status);
+			return;
 		}
 
-		// You can parse the input buffer here
-		// You can also edit the input buffer here
-		// And any change will be reflected onto the upper layer
-
-		DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "FSA4480: ACPIINBUF: LENGTH=%d", inputBufferLength);
-		for (ULONG j = 0; j < inputBufferLength; j++)
+		//
+		// Parse the input buffer here
+		//
+		if (inputBufferLength == expectedInputBufferLength)
 		{
-			UCHAR byte = *(inputBuffer + j);
-			DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, " %02hhX", byte);
+			pAcpiInputBuf = (PACPI_EVAL_INPUT_BUFFER_COMPLEX)inputBuffer;
+
+			if (pAcpiInputBuf->Signature == ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE &&
+				pAcpiInputBuf->ArgumentCount == 2 &&
+				pAcpiInputBuf->MethodNameAsUlong == (ULONG)QCUSBC_ACPI_CC_METHOD_NAME_ULONG &&
+				pAcpiInputBuf->Size == inputBufferLength - FIELD_OFFSET(ACPI_EVAL_INPUT_BUFFER_COMPLEX, Argument) &&
+				pAcpiInputBuf->Argument[0].Type == ACPI_METHOD_ARGUMENT_BUFFER &&
+				pAcpiInputBuf->Argument[0].DataLength == CC_Out_Size &&
+				pAcpiInputBuf->Argument[1].Type == ACPI_METHOD_ARGUMENT_BUFFER &&
+				pAcpiInputBuf->Argument[1].DataLength == HSMode_Size)
+			{
+				UINT32 CC_Out = *(UINT32 *)pAcpiInputBuf->Argument[0].Data[0];
+
+				//
+				// CC_OUT:
+				//
+				// 0 -> CC1
+				// 1 -> CC2
+				// 2 -> CC Open
+				//
+				TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC!: CC OUT Status = %d\n", CC_Out);
+
+				deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(device);
+				deviceContext->CCOUT = CC_Out;
+
+				if (deviceContext->CCOUT == 2)
+				{
+					FSA4480_Switch(device, FSA4480_SET_DP_DISCONNECTED);
+				}
+				else if (deviceContext->CCOUT == 0)
+				{
+					FSA4480_Switch(device, FSA4480_SET_USBC_CC1);
+				}
+				else if (deviceContext->CCOUT == 1)
+				{
+					FSA4480_Switch(device, FSA4480_SET_USBC_CC2);
+				}
+			}
 		}
-		DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "\n");
 
-		status = WdfMemoryCopyFromBuffer(
-			inputMemory,
-			0,
-			(PVOID)inputBuffer,
-			inputBufferLength);
-
-		if (!NT_SUCCESS(status))
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"WdfMemoryCopyFromBuffer failed: 0x%x\n",
-				status);
-
-			status = STATUS_UNSUCCESSFUL;
-			goto free_input_buffer;
-		}
-
-	free_input_buffer:
 		ExFreePoolWithTag(inputBuffer, ACPI_INPUT_BUFFER_POOL_TAG);
+		break;
 
-		if (!NT_SUCCESS(status))
-		{
-			goto exit;
-		}
-
-		outputBufferLength = (ULONG)Params->Parameters.Ioctl.Output.Length;
-
-		outputBuffer = (PUCHAR)ExAllocatePoolWithTag(
-			NonPagedPoolNx,
-			outputBufferLength,
-			ACPI_OUTPUT_BUFFER_POOL_TAG);
-
-		if (NULL == outputBuffer)
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"Could not allocate output buffer!");
-
-			status = STATUS_UNSUCCESSFUL;
-			goto exit;
-		}
-
-		status = WdfMemoryCopyToBuffer(
-			outputMemory,
-			Params->Parameters.Ioctl.Output.Offset,
-			outputBuffer,
-			outputBufferLength);
-
-		if (!NT_SUCCESS(status))
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"WdfMemoryCopyToBuffer failed: 0x%x\n",
-				status);
-
-			status = STATUS_UNSUCCESSFUL;
-			goto free_output_buffer;
-		}
-
-		// You can parse the output buffer here
-		// You can also edit the output buffer here
-		// And any change will be reflected onto the upper layer
-
-		DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "FSA4480: ACPIOUTBUF: LENGTH=%d", outputBufferLength);
-		for (ULONG j = 0; j < outputBufferLength; j++)
-		{
-			UCHAR byte = *(outputBuffer + j);
-			DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, " %02hhX", byte);
-		}
-		DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "\n");
-
-		status = WdfMemoryCopyFromBuffer(
-			outputMemory,
-			0,
-			(PVOID)outputBuffer,
-			outputBufferLength);
-
-		if (!NT_SUCCESS(status))
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"WdfMemoryCopyFromBuffer failed: 0x%x\n",
-				status);
-
-			status = STATUS_UNSUCCESSFUL;
-			goto free_output_buffer;
-		}
-
-	free_output_buffer:
-		ExFreePoolWithTag(outputBuffer, ACPI_OUTPUT_BUFFER_POOL_TAG);
+	default:
+		break;
 	}
 
-exit:
-	WdfRequestComplete(Request, status);
-	return;
+	//
+	// We are not interested in post processing the IRP so
+	// fire and forget.
+	//
+	WDF_REQUEST_SEND_OPTIONS_INIT(
+		&options,
+		WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
+
+	requestSent = WdfRequestSend(Request, Target, &options);
+
+	if (requestSent == FALSE)
+	{
+		status = WdfRequestGetStatus(Request);
+
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DEVICE,
+			"WdfRequestSend failed: 0x%x\n",
+			status);
+
+		WdfRequestComplete(Request, status);
+	}
 }
 
 NTSTATUS
