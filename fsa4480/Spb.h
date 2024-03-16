@@ -42,28 +42,23 @@ typedef struct _SPB_CONTEXT
 
 NTSTATUS
 SpbReadDataSynchronously(
-	_In_ SPB_CONTEXT* SpbContext,
+	_In_ SPB_CONTEXT *SpbContext,
 	_In_ UCHAR Address,
 	_In_reads_bytes_(Length) PVOID Data,
-	_In_ ULONG Length
-);
+	_In_ ULONG Length);
 
-VOID
-SpbTargetDeinitialize(
+VOID SpbTargetDeinitialize(
 	IN WDFDEVICE FxDevice,
-	IN SPB_CONTEXT* SpbContext
-);
+	IN SPB_CONTEXT *SpbContext);
 
 NTSTATUS
 SpbTargetInitialize(
 	IN WDFDEVICE FxDevice,
-	IN SPB_CONTEXT* SpbContext
-);
+	IN SPB_CONTEXT *SpbContext);
 
 NTSTATUS
 SpbWriteDataSynchronously(
-	IN SPB_CONTEXT* SpbContext,
+	IN SPB_CONTEXT *SpbContext,
 	IN UCHAR Address,
 	IN PVOID Data,
-	IN ULONG Length
-);
+	IN ULONG Length);

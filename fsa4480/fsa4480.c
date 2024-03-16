@@ -7,12 +7,11 @@ NTSTATUS
 FSA4480_UpdateSettings(
 	WDFDEVICE Device,
 	BYTE SwitchControl,
-	BYTE SwitchEnable
-)
+	BYTE SwitchEnable)
 {
 	NTSTATUS status;
 	PDEVICE_CONTEXT deviceContext;
-	LARGE_INTEGER delay = { 0 };
+	LARGE_INTEGER delay = {0};
 
 	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(Device);
 
@@ -86,8 +85,7 @@ FSA4480_UpdateSettings(
 			TRACE_LEVEL_ERROR,
 			TRACE_DRIVER,
 			"KeDelayExecutionThread failed with Status = 0x%08lX\n",
-			status
-		);
+			status);
 
 		goto exit;
 	}
@@ -128,8 +126,7 @@ exit:
 
 NTSTATUS
 FSA4480_SetDefaultRegisterSettings(
-	WDFDEVICE Device
-)
+	WDFDEVICE Device)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT deviceContext;
@@ -178,8 +175,7 @@ exit:
 NTSTATUS
 FSA4480_SetupChipGPIOs(
 	WDFDEVICE Device,
-	USBC_PARTNER USBCPartner
-)
+	USBC_PARTNER USBCPartner)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT deviceContext;
@@ -201,8 +197,7 @@ FSA4480_SetupChipGPIOs(
 NTSTATUS
 FSA4480_OnUSBCModeChanged(
 	WDFDEVICE Device,
-	USBC_PARTNER USBCPartner
-)
+	USBC_PARTNER USBCPartner)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT deviceContext;
@@ -210,7 +205,7 @@ FSA4480_OnUSBCModeChanged(
 	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(Device);
 
 	if ((USBCPartner == UsbCPartnerInvalid ||
-		USBCPartner == UsbCPartnerAudioAccessory) &&
+		 USBCPartner == UsbCPartnerAudioAccessory) &&
 		USBCPartner != deviceContext->USBCPartner)
 	{
 		deviceContext->USBCPartner = USBCPartner;
@@ -222,8 +217,7 @@ FSA4480_OnUSBCModeChanged(
 
 NTSTATUS
 FSA4480_ValidateDisplayPortSettings(
-	WDFDEVICE Device
-)
+	WDFDEVICE Device)
 {
 	NTSTATUS status;
 	PDEVICE_CONTEXT deviceContext;
@@ -248,8 +242,7 @@ FSA4480_ValidateDisplayPortSettings(
 		&deviceContext->I2CContext,
 		FSA4480_SWITCH_STATUS1,
 		&SwitchStatus,
-		1
-	);
+		1);
 
 	if (!NT_SUCCESS(status))
 	{
@@ -296,8 +289,7 @@ exit:
 NTSTATUS
 FSA4480_Switch(
 	WDFDEVICE Device,
-	FSA4480_SWITCH_MODE SwitchMode
-)
+	FSA4480_SWITCH_MODE SwitchMode)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT deviceContext;
@@ -326,8 +318,7 @@ FSA4480_Switch(
 			&deviceContext->I2CContext,
 			FSA4480_SWITCH_CONTROL,
 			&SwitchControl,
-			1
-		);
+			1);
 
 		if (!NT_SUCCESS(status))
 		{
@@ -401,8 +392,7 @@ exit:
 
 NTSTATUS
 FSA4480_Initialize(
-	WDFDEVICE Device
-)
+	WDFDEVICE Device)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 
@@ -437,8 +427,7 @@ exit:
 
 NTSTATUS
 FSA4480_Uninitialize(
-	WDFDEVICE Device
-)
+	WDFDEVICE Device)
 {
 	NTSTATUS status;
 

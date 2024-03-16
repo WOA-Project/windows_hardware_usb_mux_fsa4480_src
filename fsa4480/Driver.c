@@ -18,17 +18,16 @@ Environment:
 #include "driver.tmh"
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text (INIT, DriverEntry)
-#pragma alloc_text (PAGE, fsa4480EvtDeviceAdd)
-#pragma alloc_text (PAGE, fsa4480EvtDriverContextCleanup)
-#pragma alloc_text (PAGE, fsa4480EvtDriverUnload)
+#pragma alloc_text(INIT, DriverEntry)
+#pragma alloc_text(PAGE, fsa4480EvtDeviceAdd)
+#pragma alloc_text(PAGE, fsa4480EvtDriverContextCleanup)
+#pragma alloc_text(PAGE, fsa4480EvtDriverUnload)
 #endif
 
 NTSTATUS
 DriverEntry(
-	_In_ PDRIVER_OBJECT  DriverObject,
-	_In_ PUNICODE_STRING RegistryPath
-)
+	_In_ PDRIVER_OBJECT DriverObject,
+	_In_ PUNICODE_STRING RegistryPath)
 /*++
 
 Routine Description:
@@ -74,18 +73,17 @@ Return Value:
 	attributes.EvtCleanupCallback = fsa4480EvtDriverContextCleanup;
 
 	WDF_DRIVER_CONFIG_INIT(&config,
-		fsa4480EvtDeviceAdd
-	);
+						   fsa4480EvtDeviceAdd);
 	config.EvtDriverUnload = fsa4480EvtDriverUnload;
 
 	status = WdfDriverCreate(DriverObject,
-		RegistryPath,
-		&attributes,
-		&config,
-		WDF_NO_HANDLE
-	);
+							 RegistryPath,
+							 &attributes,
+							 &config,
+							 WDF_NO_HANDLE);
 
-	if (!NT_SUCCESS(status)) {
+	if (!NT_SUCCESS(status))
+	{
 		TraceEvents(TRACE_LEVEL_ERROR, TRACE_DRIVER, "WdfDriverCreate failed %!STATUS!", status);
 		WPP_CLEANUP(DriverObject);
 		return status;
@@ -98,9 +96,8 @@ Return Value:
 
 NTSTATUS
 fsa4480EvtDeviceAdd(
-	_In_    WDFDRIVER       Driver,
-	_Inout_ PWDFDEVICE_INIT DeviceInit
-)
+	_In_ WDFDRIVER Driver,
+	_Inout_ PWDFDEVICE_INIT DeviceInit)
 /*++
 Routine Description:
 
@@ -128,6 +125,13 @@ Return Value:
 
 	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC! Entry");
 
+	//
+	// Tell the framework that you are filter driver. Framework
+	// takes care of inherting all the device flags & characterstics
+	// from the lower device you are attaching to.
+	//
+	WdfFdoInitSetFilter(DeviceInit);
+
 	status = fsa4480CreateDevice(DeviceInit);
 
 	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC! Exit");
@@ -135,10 +139,8 @@ Return Value:
 	return status;
 }
 
-VOID
-fsa4480EvtDriverContextCleanup(
-	_In_ WDFOBJECT DriverObject
-)
+VOID fsa4480EvtDriverContextCleanup(
+	_In_ WDFOBJECT DriverObject)
 /*++
 Routine Description:
 
@@ -166,10 +168,8 @@ Return Value:
 	WPP_CLEANUP(NULL);
 }
 
-VOID
-fsa4480EvtDriverUnload(
-	IN WDFDRIVER Driver
-)
+VOID fsa4480EvtDriverUnload(
+	IN WDFDRIVER Driver)
 /*++
 Routine Description:
 

@@ -34,11 +34,10 @@
 
 NTSTATUS
 SpbDoWriteDataSynchronously(
-	IN SPB_CONTEXT* SpbContext,
+	IN SPB_CONTEXT *SpbContext,
 	IN UCHAR Address,
 	IN PVOID Data,
-	IN ULONG Length
-)
+	IN ULONG Length)
 /*++
 
   Routine Description:
@@ -157,11 +156,10 @@ exit:
 
 NTSTATUS
 SpbWriteDataSynchronously(
-	IN SPB_CONTEXT* SpbContext,
+	IN SPB_CONTEXT *SpbContext,
 	IN UCHAR Address,
 	IN PVOID Data,
-	IN ULONG Length
-)
+	IN ULONG Length)
 /*++
 
   Routine Description:
@@ -200,11 +198,10 @@ SpbWriteDataSynchronously(
 
 NTSTATUS
 SpbReadDataSynchronously(
-	IN SPB_CONTEXT* SpbContext,
+	IN SPB_CONTEXT *SpbContext,
 	IN UCHAR Address,
 	_In_reads_bytes_(Length) PVOID Data,
-	IN ULONG Length
-)
+	IN ULONG Length)
 /*++
 
   Routine Description:
@@ -291,7 +288,6 @@ SpbReadDataSynchronously(
 			Length);
 	}
 
-
 	status = WdfIoTargetSendReadSynchronously(
 		SpbContext->SpbIoTarget,
 		NULL,
@@ -337,11 +333,9 @@ exit:
 	return status;
 }
 
-VOID
-SpbTargetDeinitialize(
+VOID SpbTargetDeinitialize(
 	IN WDFDEVICE FxDevice,
-	IN SPB_CONTEXT* SpbContext
-)
+	IN SPB_CONTEXT *SpbContext)
 /*++
 
   Routine Description:
@@ -386,8 +380,7 @@ SpbTargetDeinitialize(
 NTSTATUS
 SpbTargetInitialize(
 	IN WDFDEVICE FxDevice,
-	IN SPB_CONTEXT* SpbContext
-)
+	IN SPB_CONTEXT *SpbContext)
 /*++
 
   Routine Description:
