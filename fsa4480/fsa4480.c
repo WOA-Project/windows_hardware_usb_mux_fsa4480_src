@@ -134,7 +134,7 @@ FSA4480_SetDefaultRegisterSettings(
 	NTSTATUS status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT deviceContext;
 	UINT32 i = 0;
-	
+
 	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(Device);
 
 	for (i = 0; i < ARRAYSIZE(gDefaultRegisterSettings); i++)
@@ -186,11 +186,11 @@ FSA4480_SetupChipGPIOs(
 
 	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(Device);
 
-	if (USBCPartner == UsbCPartnerInvalid)
+	if (USBCPartner == UsbCPartnerAudioAccessory)
 	{
 		status = FSA4480_UpdateSettings(Device, 0x00, 0x9F);
 	}
-	else if (USBCPartner == UsbCPartnerAudioAccessory)
+	else if (USBCPartner == UsbCPartnerInvalid)
 	{
 		status = FSA4480_UpdateSettings(Device, 0x18, 0x98);
 	}
@@ -209,7 +209,7 @@ FSA4480_OnUSBCModeChanged(
 
 	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(Device);
 
-	if ((USBCPartner == UsbCPartnerInvalid || 
+	if ((USBCPartner == UsbCPartnerInvalid ||
 		USBCPartner == UsbCPartnerAudioAccessory) &&
 		USBCPartner != deviceContext->USBCPartner)
 	{
@@ -301,11 +301,12 @@ FSA4480_Switch(
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT deviceContext;
-	BYTE Data = 0x00;
+	BYTE SwitchControl = 0x00;
 	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(Device);
 
 	switch (SwitchMode)
 	{
+	// TODO: Hook into Audio Jack EU GPIO to swap the button behavior on MBHC headsets
 	case FSA4480_SWAP_MIC_GND:
 	{
 		if (!deviceContext->InitializedSpbHardware)
@@ -324,7 +325,7 @@ FSA4480_Switch(
 		status = SpbReadDataSynchronously(
 			&deviceContext->I2CContext,
 			FSA4480_SWITCH_CONTROL,
-			&Data,
+			&SwitchControl,
 			1
 		);
 
@@ -339,16 +340,17 @@ FSA4480_Switch(
 			goto exit;
 		}
 
-		if ((Data & 0x07) == 0x07)
+		if ((SwitchControl & 0x07) == 0x07)
 		{
-			Data = 0x00;
+			SwitchControl = 0x00;
 		}
 		else
 		{
-			Data = 0x07;
+			SwitchControl = 0x07;
 		}
 
-		status = FSA4480_UpdateSettings(Device, Data, 0x9F);
+		status = FSA4480_UpdateSettings(Device, SwitchControl, 0x9F);
+		break;
 	}
 	case FSA4480_SET_USBC_CC1:
 	{
@@ -366,6 +368,7 @@ FSA4480_Switch(
 		}
 
 		status = FSA4480_ValidateDisplayPortSettings(Device);
+		break;
 	}
 	case FSA4480_SET_USBC_CC2:
 	{
@@ -383,10 +386,12 @@ FSA4480_Switch(
 		}
 
 		status = FSA4480_ValidateDisplayPortSettings(Device);
+		break;
 	}
 	case FSA4480_SET_DP_DISCONNECTED:
 	{
 		status = FSA4480_UpdateSettings(Device, 0x18, 0x98);
+		break;
 	}
 	}
 
@@ -437,6 +442,7 @@ FSA4480_Uninitialize(
 {
 	NTSTATUS status;
 
+	// TODO: Do not reset switch settings for usb digital hs
 	status = FSA4480_SetupChipGPIOs(Device, UsbCPartnerInvalid);
 	if (!NT_SUCCESS(status))
 	{
