@@ -125,13 +125,6 @@ Return Value:
 
 	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC! Entry");
 
-	//
-	// Tell the framework that you are filter driver. Framework
-	// takes care of inherting all the device flags & characterstics
-	// from the lower device you are attaching to.
-	//
-	WdfFdoInitSetFilter(DeviceInit);
-
 	status = fsa4480CreateDevice(DeviceInit);
 
 	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC! Exit");

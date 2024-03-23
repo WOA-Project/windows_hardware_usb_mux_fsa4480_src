@@ -17,7 +17,7 @@ Environment:
 #pragma once
 
 #include "spb.h"
-#include <usbctypes.h>
+#include "fsa4480.h"
 
 //
 // The device context performs the same job as
@@ -46,6 +46,8 @@ typedef struct _DEVICE_CONTEXT
 	LARGE_INTEGER EnGpioId;
 	WDFIOTARGET EnGpio;
 
+	ACPI_INTERFACE_STANDARD2 AcpiInterface;
+
 	ULONG CCOUT;
 	USBC_PARTNER USBCPartner;
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
@@ -63,10 +65,3 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)
 NTSTATUS
 fsa4480CreateDevice(
 	_Inout_ PWDFDEVICE_INIT DeviceInit);
-
-#define ACPI_OUTPUT_BUFFER_POOL_TAG 'bOcA'
-#define ACPI_INPUT_BUFFER_POOL_TAG 'bIcA'
-
-EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL OnInternalDeviceControl;
-
-EVT_WDF_REQUEST_COMPLETION_ROUTINE OnRequestCompletionRoutine;

@@ -2,7 +2,16 @@
 
 #include <ntddk.h>
 #include <wdf.h>
-#include <usbctypes.h>
+
+typedef enum _USBC_PARTNER {
+  UsbCPartnerInvalid,
+  UsbCPartnerUfp,
+  UsbCPartnerDfp,
+  UsbCPartnerPoweredCableNoUfp,
+  UsbCPartnerPoweredCableWithUfp,
+  UsbCPartnerAudioAccessory,
+  UsbCPartnerDebugAccessory
+} USBC_PARTNER;
 
 /*
  * Rob Green, a member of the NTDEV list, provides the

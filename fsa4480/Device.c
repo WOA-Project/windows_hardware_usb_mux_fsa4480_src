@@ -21,13 +21,11 @@ Environment:
 #include <gpio.h>
 #include <wdf.h>
 #include "fsa4480.h"
-#include <Acpiioct.h>
 #include "device.tmh"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, fsa4480CreateDevice)
 #pragma alloc_text(PAGE, fsa4480DevicePrepareHardware)
-#pragma alloc_text(PAGE, OnInternalDeviceControl)
 #endif
 
 NTSTATUS UtilitySetGPIO(
@@ -105,186 +103,43 @@ NTSTATUS UtilityOpenIOTarget(
 	return status;
 }
 
-#define CCOUT_SIZE (1)	// 1 Byte
-#define HSMODE_SIZE (1) // 1 Byte
-
-#define QCUSBC_ACPI_CC_METHOD_NAME_ULONG ('TOCC')
-#define QCUSBC_ACPI_CC_METHOD_ARGS (2)
-
-VOID OnInternalDeviceControl(
-	IN WDFQUEUE Queue,
-	IN WDFREQUEST Request,
-	IN size_t OutputBufferLength,
-	IN size_t InputBufferLength,
-	IN ULONG IoControlCode)
-/*++
-
-Routine Description:
-
-	This routine is the dispatch routine for internal device control requests.
-
-Arguments:
-
-	Queue - Handle to the framework queue object that is associated
-			with the I/O request.
-	Request - Handle to a framework request object.
-
-	OutputBufferLength - length of the request's output buffer,
-						if an output buffer is available.
-	InputBufferLength - length of the request's input buffer,
-						if an input buffer is available.
-
-	IoControlCode - the driver-defined or system-defined I/O control code
-					(IOCTL) that is associated with the request.
-
-Return Value:
-
-   VOID
-
---*/
+VOID
+USBCCChangeNotifyCallback(
+	PVOID   NotificationContext,
+	ULONG   NotifyCode
+)
 {
-	NTSTATUS status = STATUS_SUCCESS;
-	WDFDEVICE device;
-	BOOLEAN requestSent = TRUE;
-	WDF_REQUEST_SEND_OPTIONS options;
-	WDFIOTARGET Target;
 	PDEVICE_CONTEXT deviceContext;
+	WDFDEVICE device = (WDFDEVICE)NotificationContext;
 
-	size_t inputBufferLength = 0;
-	PUCHAR inputBuffer = NULL;
+	//
+	// CC_OUT:
+	//
+	// 0 -> CC1
+	// 1 -> CC2
+	// 2 -> CC Open
+	//
+	TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC!: CC OUT Status = %d\n", NotifyCode);
 
-	UINT8 CC_Out_Size = CCOUT_SIZE;
-	UINT8 HSMode_Size = HSMODE_SIZE;
-	size_t expectedInputBufferLength = FIELD_OFFSET(ACPI_EVAL_INPUT_BUFFER_COMPLEX, Argument) +
-									   ACPI_METHOD_ARGUMENT_LENGTH(CC_Out_Size) +
-									   ACPI_METHOD_ARGUMENT_LENGTH(HSMode_Size);
-	PACPI_EVAL_INPUT_BUFFER_COMPLEX pAcpiInputBuf = NULL;
-
-	UNREFERENCED_PARAMETER(OutputBufferLength);
-
-	PAGED_CODE();
-
-	device = WdfIoQueueGetDevice(Queue);
-	Target = WdfDeviceGetIoTarget(device);
-
-	switch (IoControlCode)
+	deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(device);
+	if (deviceContext == NULL)
 	{
-
-	case IOCTL_ACPI_EVAL_METHOD:
-		//
-		// Retrieve the input buffer from the request
-		//
-		inputBuffer = (PUCHAR)ExAllocatePoolWithTag(
-			NonPagedPoolNx,
-			inputBufferLength,
-			ACPI_INPUT_BUFFER_POOL_TAG);
-
-		if (NULL == inputBuffer)
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"Could not allocate input buffer!");
-
-			status = STATUS_UNSUCCESSFUL;
-
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"WdfRequestRetrieveInputBuffer failed: 0x%x\n",
-				status);
-
-			WdfRequestComplete(Request, status);
-			return;
-		}
-
-		status = WdfRequestRetrieveInputBuffer(Request, InputBufferLength, &inputBuffer, &inputBufferLength);
-
-		if (!NT_SUCCESS(status))
-		{
-			TraceEvents(
-				TRACE_LEVEL_ERROR,
-				TRACE_DEVICE,
-				"WdfRequestRetrieveInputBuffer failed: 0x%x\n",
-				status);
-
-			WdfRequestComplete(Request, status);
-			return;
-		}
-
-		//
-		// Parse the input buffer here
-		//
-		if (inputBufferLength == expectedInputBufferLength)
-		{
-			pAcpiInputBuf = (PACPI_EVAL_INPUT_BUFFER_COMPLEX)inputBuffer;
-
-			if (pAcpiInputBuf->Signature == ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE &&
-				pAcpiInputBuf->ArgumentCount == 2 &&
-				pAcpiInputBuf->MethodNameAsUlong == (ULONG)QCUSBC_ACPI_CC_METHOD_NAME_ULONG &&
-				pAcpiInputBuf->Size == inputBufferLength - FIELD_OFFSET(ACPI_EVAL_INPUT_BUFFER_COMPLEX, Argument) &&
-				pAcpiInputBuf->Argument[0].Type == ACPI_METHOD_ARGUMENT_BUFFER &&
-				pAcpiInputBuf->Argument[0].DataLength == CC_Out_Size &&
-				pAcpiInputBuf->Argument[1].Type == ACPI_METHOD_ARGUMENT_BUFFER &&
-				pAcpiInputBuf->Argument[1].DataLength == HSMode_Size)
-			{
-				UINT32 CC_Out = *(UINT32 *)pAcpiInputBuf->Argument[0].Data[0];
-
-				//
-				// CC_OUT:
-				//
-				// 0 -> CC1
-				// 1 -> CC2
-				// 2 -> CC Open
-				//
-				TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "%!FUNC!: CC OUT Status = %d\n", CC_Out);
-
-				deviceContext = (PDEVICE_CONTEXT)DeviceGetContext(device);
-				deviceContext->CCOUT = CC_Out;
-
-				if (deviceContext->CCOUT == 2)
-				{
-					FSA4480_Switch(device, FSA4480_SET_DP_DISCONNECTED);
-				}
-				else if (deviceContext->CCOUT == 0)
-				{
-					FSA4480_Switch(device, FSA4480_SET_USBC_CC1);
-				}
-				else if (deviceContext->CCOUT == 1)
-				{
-					FSA4480_Switch(device, FSA4480_SET_USBC_CC2);
-				}
-			}
-		}
-
-		ExFreePoolWithTag(inputBuffer, ACPI_INPUT_BUFFER_POOL_TAG);
-		break;
-
-	default:
-		break;
+		return;
 	}
 
-	//
-	// We are not interested in post processing the IRP so
-	// fire and forget.
-	//
-	WDF_REQUEST_SEND_OPTIONS_INIT(
-		&options,
-		WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
+	deviceContext->CCOUT = NotifyCode;
 
-	requestSent = WdfRequestSend(Request, Target, &options);
-
-	if (requestSent == FALSE)
+	if (deviceContext->CCOUT == 2)
 	{
-		status = WdfRequestGetStatus(Request);
-
-		TraceEvents(
-			TRACE_LEVEL_ERROR,
-			TRACE_DEVICE,
-			"WdfRequestSend failed: 0x%x\n",
-			status);
-
-		WdfRequestComplete(Request, status);
+		FSA4480_Switch(device, FSA4480_SET_DP_DISCONNECTED);
+	}
+	else if (deviceContext->CCOUT == 0)
+	{
+		FSA4480_Switch(device, FSA4480_SET_USBC_CC1);
+	}
+	else if (deviceContext->CCOUT == 1)
+	{
+		FSA4480_Switch(device, FSA4480_SET_USBC_CC2);
 	}
 }
 
@@ -294,7 +149,7 @@ RegisterForUSBCCChangeNotification(
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT deviceContext;
-	WDF_IO_QUEUE_CONFIG queueConfig;
+	PACPI_INTERFACE_STANDARD2 ACPIInterface;
 
 	PAGED_CODE();
 
@@ -305,27 +160,38 @@ RegisterForUSBCCChangeNotification(
 		goto exit;
 	}
 
-	//
-	// Create a parallel dispatch queue to handle requests from ACPI
-	//
-	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(
-		&queueConfig,
-		WdfIoQueueDispatchParallel);
+	ACPIInterface = &(deviceContext->AcpiInterface);
 
-	queueConfig.EvtIoInternalDeviceControl = OnInternalDeviceControl;
-
-	status = WdfIoQueueCreate(
+	status = WdfFdoQueryForInterface(
 		Device,
-		&queueConfig,
-		WDF_NO_OBJECT_ATTRIBUTES,
-		WDF_NO_HANDLE); // pointer to default queue
+		&GUID_ACPI_INTERFACE_STANDARD2,
+		(PINTERFACE)ACPIInterface,
+		sizeof(ACPI_INTERFACE_STANDARD2),
+		1,
+		NULL);
 
 	if (!NT_SUCCESS(status))
 	{
 		TraceEvents(
 			TRACE_LEVEL_ERROR,
 			TRACE_DEVICE,
-			"Error creating WDF default queue - 0x%08lX",
+			"Error querying ACPI interface - 0x%08lX",
+			status);
+
+		goto exit;
+	}
+
+	status = ACPIInterface->RegisterForDeviceNotifications(
+		ACPIInterface->Context,
+		USBCCChangeNotifyCallback,
+		Device);
+
+	if (!NT_SUCCESS(status))
+	{
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DEVICE,
+			"Error registering for ACPI interface notifications - 0x%08lX",
 			status);
 
 		goto exit;
@@ -645,6 +511,7 @@ VOID fsa4480DeviceUnPrepareHardware(
 	WDFDEVICE Device)
 {
 	PDEVICE_CONTEXT devContext = DeviceGetContext(Device);
+	PACPI_INTERFACE_STANDARD2 ACPIInterface;
 
 	if (devContext == NULL)
 	{
@@ -653,6 +520,8 @@ VOID fsa4480DeviceUnPrepareHardware(
 
 	if (devContext->InitializedAcpiInterface)
 	{
+		ACPIInterface = &(devContext->AcpiInterface);
+		ACPIInterface->UnregisterForDeviceNotifications(ACPIInterface->Context);
 		devContext->InitializedAcpiInterface = FALSE;
 	}
 

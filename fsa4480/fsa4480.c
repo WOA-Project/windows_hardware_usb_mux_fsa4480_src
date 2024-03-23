@@ -1,6 +1,5 @@
 #include "fsa4480.h"
 #include "Driver.h"
-#include <usbctypes.h>
 #include "fsa4480.tmh"
 
 NTSTATUS
