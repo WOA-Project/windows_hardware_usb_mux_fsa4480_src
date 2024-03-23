@@ -646,6 +646,11 @@ VOID fsa4480DeviceUnPrepareHardware(
 {
 	PDEVICE_CONTEXT devContext = DeviceGetContext(Device);
 
+	if (devContext == NULL)
+	{
+		return;
+	}
+
 	if (devContext->InitializedAcpiInterface)
 	{
 		devContext->InitializedAcpiInterface = FALSE;
